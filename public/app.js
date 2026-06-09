@@ -15,9 +15,13 @@ const els = {
   pinnedList: document.getElementById('pinnedList'),
   pinCount: document.getElementById('pinCount'),
   clearPinsBtn: document.getElementById('clearPinsBtn'),
+  themeToggle: document.getElementById('themeToggle'),
+  expandAll: document.getElementById('expandAll'),
+  collapseAll: document.getElementById('collapseAll'),
 };
 
 const PIN_KEY = 'cargoclue.pins.v1';
+const THEME_KEY = 'cargoclue.theme';
 const NO_STACK = '(no stack)';
 
 const state = {
@@ -27,6 +31,7 @@ const state = {
   filter: '',
   levelFilter: new Set(), // empty = show all levels
   collapsed: new Set(),   // collapsed stack names
+  updates: {},            // containerId -> true when an image update is available
   pins: loadPins(),
   lines: [],              // raw log entries for re-filtering
 };
@@ -61,11 +66,31 @@ function hueFor(name) {
 }
 function srcColor(name) { return `hsl(${hueFor(name)}, 65%, 65%)`; }
 
+/* ---------------- Theme ---------------- */
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  els.themeToggle.textContent = theme === 'light' ? '🌙' : '☀️';
+  els.themeToggle.title = theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode';
+}
+function toggleTheme() {
+  const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+}
+
 /* ---------------- API ---------------- */
 async function fetchVersion() {
   try {
     const { version } = await (await fetch('/api/version')).json();
     if (version) els.version.textContent = 'v' + version;
+  } catch { /* ignore */ }
+}
+
+async function fetchUpdates() {
+  try {
+    const { updates } = await (await fetch('/api/updates')).json();
+    state.updates = updates || {};
+    renderContainers();
   } catch { /* ignore */ }
 }
 
@@ -162,13 +187,17 @@ function renderContainers() {
         const item = document.createElement('div');
         item.className = 'container-item'
           + (state.active?.kind === 'container' && state.active.key === c.id ? ' active' : '');
+        const hasUpdate = state.updates[c.id];
         item.innerHTML = `
           <span class="dot ${c.state === 'running' ? 'running' : ''}"></span>
           <span class="c-meta">
-            <div class="c-name"></div>
+            <div class="c-name">
+              <span class="c-name-text"></span>
+              ${hasUpdate ? '<span class="update-dot" title="Image update available">⬆</span>' : ''}
+            </div>
             <div class="c-sub"></div>
           </span>`;
-        item.querySelector('.c-name').textContent = c.name;
+        item.querySelector('.c-name-text').textContent = c.name;
         item.querySelector('.c-sub').textContent = c.status;
         item.addEventListener('click', () => selectContainer(c));
         group.appendChild(item);
@@ -243,6 +272,32 @@ function fmtTs(ts) {
   return isNaN(d) ? ts : d.toLocaleTimeString();
 }
 
+function copyEntry(entry, btn) {
+  const parts = [entry.ts, entry.containerName, entry.text].filter(Boolean);
+  const text = parts.join(' ');
+  const done = () => {
+    const prev = btn.textContent;
+    btn.textContent = '✓';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = prev; btn.classList.remove('copied'); }, 900);
+  };
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else {
+    fallbackCopy(text, done);
+  }
+}
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); done(); } catch { /* ignore */ }
+  document.body.removeChild(ta);
+}
+
 function addLogLine(msg) {
   const entry = makeEntry(msg);
   state.lines.push(entry);
@@ -262,9 +317,15 @@ function appendLineNode(entry) {
     src +
     `<span class="lvl">${entry.level}</span>` +
     `<span class="msg"></span>` +
-    `<button class="pin-btn" title="Pin this entry">📌</button>`;
+    `<span class="line-actions">` +
+      `<button class="copy-btn" title="Copy entry to clipboard">⧉</button>` +
+      `<button class="pin-btn" title="Pin this entry">📌</button>` +
+    `</span>`;
   node.querySelector('.msg').textContent = entry.text;
   if (src) node.querySelector('.src').textContent = entry.containerName;
+
+  const copyBtn = node.querySelector('.copy-btn');
+  copyBtn.addEventListener('click', (e) => { e.stopPropagation(); copyEntry(entry, copyBtn); });
 
   const pinBtn = node.querySelector('.pin-btn');
   if (isPinned(entry)) pinBtn.classList.add('pinned');
@@ -288,7 +349,7 @@ function renderPins() {
     const node = document.createElement('div');
     node.className = `pinned-item level-${entry.level}`;
     node.innerHTML = `
-      <button class="unpin" title="Unpin">✕</button>
+      <button class="unpin" title="Unpin this entry">📌</button>
       <span class="src"></span>
       <span class="ts">${fmtTs(entry.ts)}</span>
       <span class="msg"></span>`;
@@ -321,9 +382,16 @@ els.filterInput.addEventListener('input', () => {
   state.filter = els.filterInput.value.trim().toLowerCase();
   rerenderLog();
 });
+els.themeToggle.addEventListener('click', toggleTheme);
+els.expandAll.addEventListener('click', () => { state.collapsed.clear(); renderContainers(); });
+els.collapseAll.addEventListener('click', () => {
+  for (const [stack] of groupByStack(state.containers)) state.collapsed.add(stack);
+  renderContainers();
+});
 
 /* ---------------- Init ---------------- */
 (async function init() {
+  applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
   renderPins();
   fetchVersion();
   try {
@@ -332,5 +400,11 @@ els.filterInput.addEventListener('input', () => {
   } catch (err) {
     setConn('API error: ' + err.message, 'error');
   }
+  fetchUpdates();
+  // The server warms the update cache asynchronously; re-poll a couple of times
+  // shortly after load so the indicators show up without waiting for the long interval.
+  setTimeout(fetchUpdates, 8000);
+  setTimeout(fetchUpdates, 25000);
   setInterval(fetchContainers, 10000);
+  setInterval(fetchUpdates, 10 * 60 * 1000); // re-check image updates every 10 min
 })();

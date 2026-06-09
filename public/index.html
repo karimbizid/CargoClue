@@ -21,12 +21,19 @@
     <div class="status-group">
       <span class="version" id="version"></span>
       <span class="conn" id="connStatus">disconnected</span>
+      <button id="themeToggle" class="theme-toggle" title="Toggle light / dark">☀️</button>
     </div>
   </header>
 
   <main class="layout">
     <aside class="sidebar">
-      <div class="sidebar-head">Containers</div>
+      <div class="sidebar-head">
+        <span>Containers</span>
+        <span class="collapse-all">
+          <button id="expandAll" title="Expand all stacks">+</button>
+          <button id="collapseAll" title="Collapse all stacks">−</button>
+        </span>
+      </div>
       <div id="containerList" class="container-list"></div>
     </aside>
 

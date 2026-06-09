@@ -97,6 +97,9 @@ npm start
 - `dockerode` talks to the Docker Engine API over the mounted socket.
 - `GET /api/stacks` and `GET /api/containers?stack=…` drive the UI lists.
 - `GET /api/version` exposes the version shown in the header.
+- `GET /api/updates` reports, per container, whether a newer image exists. It compares the
+  locally pulled image digest with the registry's current digest for the same tag
+  (best-effort, anonymous; results are cached and refreshed in the background).
 - `WS /ws/logs?ids=<id1,id2,…>&tail=300` streams logs. A single id follows one
   container; a comma-separated list follows a whole stack, multiplexing all of them
   onto one socket. Non-TTY streams are demultiplexed into stdout/stderr and a log level
@@ -105,7 +108,36 @@ npm start
 ## Versioning
 
 The version in `package.json` is bumped on **every** change and surfaced in the UI
-(top-right). Use it to confirm a rebuild actually took effect.
+(top-right). Use it to confirm a rebuild actually took effect. Each version is recorded
+in the changelog below.
+
+## Changelog
+
+### v0.2.0
+- **Light mode** with a sun/moon toggle (top-right), remembered per browser.
+- **Expand/collapse all stacks** via the `+` / `−` buttons next to *Containers*
+  (individual stacks remain collapsible with their caret).
+- **Copy button** on every log line — copies the full entry to the clipboard.
+- **Per-entry unpin** in the pinned list (pushpin-with-cross icon).
+- **Update indicator** (⬆) on a container when a newer image is available in the
+  registry (best-effort; anonymous registries / Docker Hub).
+
+### v0.1.4
+- Image now builds as `cargoclue` instead of `cargoclue-cargoclue`; added a deploy guide
+  and `docker-compose.deploy.yml` for running from a published image.
+
+### v0.1.3
+- Enlarged the header logo (the top bar scales with it).
+
+### v0.1.2
+- Made the logo background transparent (removed the white badge).
+
+### v0.1.1
+- README with the full feature list and logo header.
+
+### v0.1.0
+- Initial release: stack dropdown, grouped container list, live colour-coded log
+  streaming over WebSocket, level chips, text filter, autoscroll, and pinning.
 
 ## Security note
 

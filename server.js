@@ -81,6 +81,123 @@ app.get('/api/containers', async (req, res) => {
   }
 });
 
+/* ---------------- Image update detection (best effort) ----------------
+ * Compares the locally pulled image digest against the registry's current
+ * digest for the same tag. Works anonymously for Docker Hub and registries
+ * that allow anonymous pulls; silently skips anything it can't resolve
+ * (locally built images, private registries needing credentials, offline). */
+const MANIFEST_ACCEPT = [
+  'application/vnd.docker.distribution.manifest.v2+json',
+  'application/vnd.docker.distribution.manifest.list.v2+json',
+  'application/vnd.oci.image.manifest.v1+json',
+  'application/vnd.oci.image.index.v1+json',
+].join(', ');
+
+let updatesByContainer = {}; // containerId -> true when an update is available
+let lastUpdateScan = 0;
+let scanningUpdates = false;
+
+function parseImageRef(ref) {
+  let rest = ref.split('@')[0]; // drop any pinned digest
+  let registry = 'registry-1.docker.io';
+  const slash = rest.indexOf('/');
+  if (slash !== -1) {
+    const first = rest.slice(0, slash);
+    if (first.includes('.') || first.includes(':') || first === 'localhost') {
+      registry = first;
+      rest = rest.slice(slash + 1);
+    }
+  }
+  let tag = 'latest';
+  const colon = rest.lastIndexOf(':');
+  if (colon !== -1 && !rest.slice(colon).includes('/')) {
+    tag = rest.slice(colon + 1);
+    rest = rest.slice(0, colon);
+  }
+  let repo = rest;
+  if (registry === 'registry-1.docker.io' && !repo.includes('/')) repo = 'library/' + repo;
+  return { registry, repo, tag };
+}
+
+async function fetchRegistryToken(wwwAuth) {
+  // e.g. Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:library/nginx:pull"
+  const m = /Bearer\s+(.*)/i.exec(wwwAuth || '');
+  if (!m) return null;
+  const params = {};
+  for (const part of m[1].split(',')) {
+    const kv = /(\w+)="([^"]*)"/.exec(part.trim());
+    if (kv) params[kv[1]] = kv[2];
+  }
+  if (!params.realm) return null;
+  const url = new URL(params.realm);
+  if (params.service) url.searchParams.set('service', params.service);
+  if (params.scope) url.searchParams.set('scope', params.scope);
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) return null;
+  const json = await res.json();
+  return json.token || json.access_token || null;
+}
+
+async function getRegistryDigest({ registry, repo, tag }) {
+  const url = `https://${registry}/v2/${repo}/manifests/${tag}`;
+  const opts = (auth) => ({
+    method: 'GET',
+    headers: { Accept: MANIFEST_ACCEPT, ...(auth ? { Authorization: `Bearer ${auth}` } : {}) },
+    signal: AbortSignal.timeout(8000),
+  });
+  let res = await fetch(url, opts());
+  if (res.status === 401) {
+    const token = await fetchRegistryToken(res.headers.get('www-authenticate'));
+    if (token) res = await fetch(url, opts(token));
+  }
+  if (!res.ok) return null;
+  return res.headers.get('docker-content-digest');
+}
+
+async function getLocalDigest(imageRef) {
+  const info = await docker.getImage(imageRef).inspect();
+  const digests = info.RepoDigests || [];
+  if (!digests.length) return null;
+  const entry = digests.find((d) => d.includes('@')) || digests[0];
+  return entry.split('@')[1] || null;
+}
+
+async function scanUpdates() {
+  if (scanningUpdates) return;
+  scanningUpdates = true;
+  try {
+    const containers = await docker.listContainers({ all: true });
+    const byImage = new Map(); // imageRef -> [containerId]
+    for (const c of containers) {
+      const ref = c.Image;
+      if (!ref || ref.startsWith('sha256:')) continue;
+      if (!byImage.has(ref)) byImage.set(ref, []);
+      byImage.get(ref).push(c.Id);
+    }
+    const result = {};
+    await Promise.all([...byImage.entries()].map(async ([ref, ids]) => {
+      try {
+        const local = await getLocalDigest(ref);
+        if (!local) return;
+        const remote = await getRegistryDigest(parseImageRef(ref));
+        if (!remote) return;
+        if (remote !== local) for (const id of ids) result[id] = true;
+      } catch { /* per-image failure is non-fatal */ }
+    }));
+    updatesByContainer = result;
+    lastUpdateScan = Date.now();
+  } catch { /* ignore */ } finally {
+    scanningUpdates = false;
+  }
+}
+
+const UPDATE_TTL_MS = 30 * 60 * 1000;
+
+app.get('/api/updates', (req, res) => {
+  if (Date.now() - lastUpdateScan > UPDATE_TTL_MS) scanUpdates(); // refresh in background
+  res.json({ updates: updatesByContainer, checkedAt: lastUpdateScan });
+});
+
 // Guess a log level from a raw line so the UI can colour-code it.
 function detectLevel(line, stream) {
   const l = line.toLowerCase();
@@ -196,4 +313,5 @@ wss.on('connection', async (ws, req) => {
 
 server.listen(PORT, () => {
   console.log(`CargoClue listening on http://0.0.0.0:${PORT} (docker socket: ${SOCKET})`);
+  scanUpdates(); // warm the image-update cache in the background
 });

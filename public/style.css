@@ -16,6 +16,23 @@
   font-size: 14px;
 }
 
+[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-alt: #f6f8fa;
+  --bg-elev: #eaeef2;
+  --border: #d0d7de;
+  --text: #1f2328;
+  --text-dim: #59636e;
+  --accent: #0969da;
+  --error: #cf222e;
+  --warn: #9a6700;
+  --info: #0969da;
+  --debug: #6e7781;
+  --log: #1f2328;
+  --running: #1a7f37;
+  --stopped: #8c959f;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -50,6 +67,14 @@ body {
 .stack-picker { display: flex; align-items: center; gap: 8px; }
 .status-group { margin-left: auto; display: flex; align-items: center; gap: 14px; }
 .version { font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.theme-toggle {
+  padding: 4px 8px;
+  font-size: 15px;
+  line-height: 1;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
 .stack-picker label { color: var(--text-dim); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
 select, input[type="text"], button {
   background: var(--bg-elev);
@@ -80,6 +105,9 @@ button:hover { border-color: var(--accent); }
   min-height: 0;
 }
 .sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 10px 14px;
   font-size: 12px;
   text-transform: uppercase;
@@ -89,7 +117,24 @@ button:hover { border-color: var(--accent); }
   top: 0;
   background: var(--bg-alt);
   border-bottom: 1px solid var(--border);
+  z-index: 1;
 }
+.collapse-all { display: flex; gap: 4px; }
+.collapse-all button {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+}
+.collapse-all button:hover { color: var(--text); border-color: var(--accent); }
 .container-list { margin: 0; padding: 0; }
 
 /* Stack group header */
@@ -143,7 +188,15 @@ button:hover { border-color: var(--accent); }
 .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: var(--stopped); }
 .dot.running { background: var(--running); }
 .c-meta { min-width: 0; }
-.c-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.c-name { font-size: 13px; display: flex; align-items: center; gap: 5px; min-width: 0; }
+.c-name-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.update-dot {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--warn);
+  cursor: help;
+}
 .c-sub { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- Log pane ---------- */
@@ -235,10 +288,17 @@ button:hover { border-color: var(--accent); }
 .log-line.level-warn .lvl { color: var(--warn); }
 .log-line.level-info .lvl { color: var(--info); }
 .log-line.level-debug .lvl { color: var(--debug); }
-.pin-btn {
+.line-actions {
   position: absolute;
   right: 8px;
   top: 0;
+  display: flex;
+  gap: 2px;
+  background: transparent;
+  padding-left: 6px;
+}
+.log-line:hover .line-actions { background: var(--bg-alt); }
+.line-actions button {
   opacity: 0;
   background: transparent;
   border: none;
@@ -247,9 +307,10 @@ button:hover { border-color: var(--accent); }
   padding: 0 4px;
   color: var(--text-dim);
 }
-.log-line:hover .pin-btn { opacity: 1; }
-.pin-btn:hover { color: var(--accent); }
-.pin-btn.pinned { opacity: 1; color: var(--warn); }
+.log-line:hover .line-actions button { opacity: .75; }
+.line-actions button:hover { opacity: 1 !important; color: var(--accent); }
+.copy-btn.copied { opacity: 1 !important; color: var(--running); }
+.pin-btn.pinned { opacity: 1 !important; color: var(--warn); }
 
 .empty { padding: 20px 16px; color: var(--text-dim); font-family: sans-serif; }
 
@@ -288,5 +349,28 @@ button:hover { border-color: var(--accent); }
 .pinned-item.level-error .msg { color: var(--error); }
 .pinned-item.level-warn .msg { color: var(--warn); }
 .pinned-item.level-info .msg { color: var(--info); }
-.pinned-item .unpin { background: transparent; border: none; color: var(--text-dim); cursor: pointer; padding: 0 4px; }
-.pinned-item .unpin:hover { color: var(--error); }
+/* Unpin button: a pushpin with a red cross struck through it. */
+.pinned-item .unpin {
+  position: relative;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 13px;
+  line-height: 1;
+  filter: grayscale(0.2);
+}
+.pinned-item .unpin::after {
+  content: "✕";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--error);
+  font-size: 15px;
+  font-weight: 700;
+  text-shadow: 0 0 2px var(--bg-alt);
+  pointer-events: none;
+}
+.pinned-item .unpin:hover { transform: scale(1.1); }
