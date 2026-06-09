@@ -1,6 +1,6 @@
 {
   "name": "cargoclue",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Simple web UI to view and pin logs from Docker containers and stacks",
   "main": "server.js",
   "type": "commonjs",

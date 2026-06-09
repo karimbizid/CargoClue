@@ -19,6 +19,17 @@
       <button id="refreshBtn" title="Refresh containers">↻</button>
     </div>
     <div class="status-group">
+      <button id="watchtower" class="watchtower-chip" title="Watchtower — containers exposing sensitive data in their logs">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+             stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 9h6l1.6 11H7.4z" />
+          <path d="M9.3 13h5.4" />
+          <path d="M10 5.5h4V9h-4z" />
+          <path d="M12 2.5V5" />
+          <path d="M8.5 4.5 6.5 3.3M15.5 4.5l2-1.2" />
+        </svg>
+        <span>Watchtower</span>
+      </button>
       <span class="version" id="version"></span>
       <a id="githubLink" class="gh-link" href="https://github.com/karimbizid/CargoClue"
          target="_blank" rel="noopener noreferrer" title="View on GitHub">
@@ -53,6 +64,7 @@
             <span class="export-unit">min</span>
             <button id="copyRange" class="export-btn" title="Copy last N minutes to clipboard">⧉</button>
             <button id="downloadRange" class="export-btn" title="Download last N minutes">⬇</button>
+            <button id="maskToggle" class="export-btn" title="Incognito: mask sensitive data in copies/downloads">🥸</button>
           </div>
           <div class="level-chips" id="levelChips">
             <button class="chip" data-level="error">Error</button>
@@ -76,6 +88,22 @@
     </div>
     <div id="pinnedList" class="pinned-list"></div>
   </footer>
+
+  <div id="watchtowerPanel" class="wt-panel" hidden>
+    <div class="wt-card">
+      <div class="wt-head">
+        <span class="wt-title">
+          <span class="wt-icon">🛡️</span> Watchtower — sensitive data exposure
+        </span>
+        <span class="wt-actions">
+          <button id="wtRefresh" title="Re-scan now">↻</button>
+          <button id="wtClose" title="Close">✕</button>
+        </span>
+      </div>
+      <div class="wt-sub" id="wtSub"></div>
+      <div class="wt-body" id="wtBody"></div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

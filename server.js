@@ -241,6 +241,106 @@ app.get('/api/updates', (req, res) => {
   res.json({ updates: updatesByContainer, checkedAt: lastUpdateScan });
 });
 
+/* ---------------- Sensitive-info detection (Watchtower) ----------------
+ * Scans recent log lines for secrets/PII so the UI can flag which containers
+ * expose sensitive data. The same rules power the "incognito" export masking.
+ * Rules are {type, src, flags, replace}; `replace` may use $1 capture groups. */
+const SENSITIVE_RULES = [
+  { type: 'Private key', src: '-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----', flags: 'g', replace: '[PRIVATE KEY REDACTED]' },
+  { type: 'JWT', src: '\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\b', flags: 'g', replace: '[JWT REDACTED]' },
+  { type: 'AWS key', src: '\\bAKIA[0-9A-Z]{16}\\b', flags: 'g', replace: '[AWS KEY REDACTED]' },
+  { type: 'API key/token', src: '\\b(?:sk|pk|rk)-[A-Za-z0-9]{16,}\\b', flags: 'g', replace: '[API KEY REDACTED]' },
+  { type: 'Bearer token', src: '(\\bBearer\\s+)[A-Za-z0-9._-]{8,}', flags: 'gi', replace: '$1[REDACTED]' },
+  { type: 'Credentials in URL', src: '(://)[^\\s:@/]+:[^\\s:@/]+@', flags: 'gi', replace: '$1[REDACTED]@' },
+  { type: 'Secret value', src: '(\\b(?:password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?token|client[_-]?secret|private[_-]?key|token|auth[_-]?token)\\b\\s*[:=]\\s*["\']?)([^\\s"\',]{3,})', flags: 'gi', replace: '$1[REDACTED]' },
+  { type: 'Email', src: '\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b', flags: 'g', replace: '[EMAIL]' },
+  { type: 'IP address', src: '\\b(?:(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)\\b', flags: 'g', replace: '[IP]' },
+];
+
+function scanTypes(text) {
+  const found = [];
+  for (const r of SENSITIVE_RULES) {
+    if (new RegExp(r.src, r.flags.replace('g', '')).test(text)) found.push(r.type);
+  }
+  return found;
+}
+
+function maskText(text) {
+  let out = text;
+  for (const r of SENSITIVE_RULES) {
+    out = out.replace(new RegExp(r.src, r.flags), r.replace);
+  }
+  return out;
+}
+
+// Convert a (possibly multiplexed) docker log buffer to plain text.
+function demuxBuffer(buf) {
+  let out = '';
+  let i = 0;
+  while (i + 8 <= buf.length) {
+    const type = buf[i];
+    const isHeader = (type === 0 || type === 1 || type === 2)
+      && buf[i + 1] === 0 && buf[i + 2] === 0 && buf[i + 3] === 0;
+    if (!isHeader) break;
+    const size = buf.readUInt32BE(i + 4);
+    out += buf.toString('utf8', i + 8, i + 8 + size);
+    i += 8 + size;
+  }
+  return out || buf.toString('utf8'); // fall back to raw (TTY) text
+}
+
+let sensitiveByContainer = [];
+let lastSensitiveScan = 0;
+let scanningSensitive = false;
+const SENSITIVE_TTL_MS = 5 * 60 * 1000;
+
+async function scanSensitive() {
+  if (scanningSensitive) return;
+  scanningSensitive = true;
+  try {
+    const containers = await docker.listContainers({ all: true });
+    const results = [];
+    await Promise.all(containers.map(async (c) => {
+      try {
+        const buf = await docker.getContainer(c.Id).logs({
+          follow: false, stdout: true, stderr: true, tail: 300, timestamps: false,
+        });
+        const text = demuxBuffer(Buffer.isBuffer(buf) ? buf : Buffer.from(buf));
+        const typeSet = new Set();
+        let count = 0;
+        const samples = [];
+        for (const line of text.split('\n')) {
+          const types = scanTypes(line);
+          if (!types.length) continue;
+          count++;
+          types.forEach((t) => typeSet.add(t));
+          if (samples.length < 3) samples.push(maskText(line).trim().slice(0, 200));
+        }
+        if (count) {
+          const name = (c.Names && c.Names[0] ? c.Names[0] : c.Id).replace(/^\//, '');
+          results.push({
+            id: c.Id,
+            name,
+            stack: (c.Labels || {})[STACK_LABEL] || NO_STACK,
+            types: [...typeSet],
+            count,
+            samples,
+          });
+        }
+      } catch { /* per-container failure is non-fatal */ }
+    }));
+    sensitiveByContainer = results.sort((a, b) => b.count - a.count);
+    lastSensitiveScan = Date.now();
+  } catch { /* ignore */ } finally {
+    scanningSensitive = false;
+  }
+}
+
+app.get('/api/sensitive-scan', (req, res) => {
+  if (Date.now() - lastSensitiveScan > SENSITIVE_TTL_MS) scanSensitive();
+  res.json({ containers: sensitiveByContainer, checkedAt: lastSensitiveScan });
+});
+
 // Guess a log level from a raw line so the UI can colour-code it.
 function detectLevel(line, stream) {
   const l = line.toLowerCase();
@@ -356,5 +456,6 @@ wss.on('connection', async (ws, req) => {
 
 server.listen(PORT, () => {
   console.log(`CargoClue listening on http://0.0.0.0:${PORT} (docker socket: ${SOCKET})`);
-  scanUpdates(); // warm the image-update cache in the background
+  scanUpdates();    // warm the image-update cache in the background
+  scanSensitive();  // warm the sensitive-info scan in the background
 });

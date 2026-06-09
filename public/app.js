@@ -21,13 +21,21 @@ const els = {
   exportMinutes: document.getElementById('exportMinutes'),
   copyRange: document.getElementById('copyRange'),
   downloadRange: document.getElementById('downloadRange'),
+  maskToggle: document.getElementById('maskToggle'),
   githubLink: document.getElementById('githubLink'),
   ghBadge: document.getElementById('ghBadge'),
+  watchtower: document.getElementById('watchtower'),
+  watchtowerPanel: document.getElementById('watchtowerPanel'),
+  wtBody: document.getElementById('wtBody'),
+  wtSub: document.getElementById('wtSub'),
+  wtClose: document.getElementById('wtClose'),
+  wtRefresh: document.getElementById('wtRefresh'),
 };
 
 const PIN_KEY = 'cargoclue.pins.v1';
 const THEME_KEY = 'cargoclue.theme';
 const EXPORT_MIN_KEY = 'cargoclue.exportMinutes';
+const MASK_KEY = 'cargoclue.mask';
 const NO_STACK = '(no stack)';
 
 const state = {
@@ -38,6 +46,8 @@ const state = {
   levelFilter: new Set(), // empty = show all levels
   collapsed: new Set(),   // collapsed stack names
   updates: {},            // containerId -> true when an image update is available
+  mask: false,            // incognito: mask sensitive data on export
+  watchtowerSeen: true,   // false → chip blinks until the panel is opened
   pins: loadPins(),
   lines: [],              // raw log entries for re-filtering
 };
@@ -82,6 +92,29 @@ function toggleTheme() {
   const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
   localStorage.setItem(THEME_KEY, next);
   applyTheme(next);
+}
+
+/* ---------------- Sensitive-info detection & masking ----------------
+ * Kept in sync with the server-side rules in server.js. */
+const SENSITIVE_RULES = [
+  { src: '-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----', flags: 'g', replace: '[PRIVATE KEY REDACTED]' },
+  { src: '\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\b', flags: 'g', replace: '[JWT REDACTED]' },
+  { src: '\\bAKIA[0-9A-Z]{16}\\b', flags: 'g', replace: '[AWS KEY REDACTED]' },
+  { src: '\\b(?:sk|pk|rk)-[A-Za-z0-9]{16,}\\b', flags: 'g', replace: '[API KEY REDACTED]' },
+  { src: '(\\bBearer\\s+)[A-Za-z0-9._-]{8,}', flags: 'gi', replace: '$1[REDACTED]' },
+  { src: '(://)[^\\s:@/]+:[^\\s:@/]+@', flags: 'gi', replace: '$1[REDACTED]@' },
+  { src: '(\\b(?:password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?token|client[_-]?secret|private[_-]?key|token|auth[_-]?token)\\b\\s*[:=]\\s*["\']?)([^\\s"\',]{3,})', flags: 'gi', replace: '$1[REDACTED]' },
+  { src: '\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b', flags: 'g', replace: '[EMAIL]' },
+  { src: '\\b(?:(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)\\b', flags: 'g', replace: '[IP]' },
+];
+
+function isSensitive(text) {
+  return SENSITIVE_RULES.some((r) => new RegExp(r.src, r.flags.replace('g', '')).test(text));
+}
+function maskText(text) {
+  let out = text;
+  for (const r of SENSITIVE_RULES) out = out.replace(new RegExp(r.src, r.flags), r.replace);
+  return out;
 }
 
 /* ---------------- API ---------------- */
@@ -333,7 +366,8 @@ function exportMinutesValue() {
 }
 
 function formatEntry(e) {
-  return [e.ts, e.containerName, e.level.toUpperCase(), e.text].filter(Boolean).join(' ');
+  const text = state.mask ? maskText(e.text) : e.text;
+  return [e.ts, e.containerName, e.level.toUpperCase(), text].filter(Boolean).join(' ');
 }
 
 // Lines from the current buffer within the last `minutes` minutes (by timestamp).
@@ -378,10 +412,73 @@ function downloadRange() {
   flashBtn(els.downloadRange, '✓', 'copied');
 }
 
+/* ---------------- Watchtower (sensitive-data panel) ---------------- */
+async function openWatchtower() {
+  els.watchtowerPanel.hidden = false;
+  state.watchtowerSeen = true;
+  els.watchtower.classList.remove('blink');
+  els.watchtower.classList.add('open');
+  await loadWatchtower();
+}
+function closeWatchtower() {
+  els.watchtowerPanel.hidden = true;
+  els.watchtower.classList.remove('open');
+}
+async function loadWatchtower() {
+  els.wtSub.textContent = 'Scanning recent logs…';
+  els.wtBody.innerHTML = '';
+  try {
+    const data = await (await fetch('/api/sensitive-scan')).json();
+    renderWatchtower(data);
+  } catch (err) {
+    els.wtSub.textContent = 'Scan failed: ' + err.message;
+  }
+}
+function renderWatchtower(data) {
+  const list = data.containers || [];
+  els.wtBody.innerHTML = '';
+  if (!list.length) {
+    els.wtSub.textContent = 'No sensitive data found in recent logs. 🎉';
+    return;
+  }
+  els.wtSub.textContent = `${list.length} container(s) exposing sensitive data in recent logs:`;
+  for (const c of list) {
+    const item = document.createElement('div');
+    item.className = 'wt-item';
+    const types = c.types.map((t) => `<span class="wt-tag">${t}</span>`).join('');
+    const samples = (c.samples || []).map((s) => {
+      const div = document.createElement('div');
+      div.className = 'wt-sample';
+      div.textContent = s; // already masked server-side
+      return div.outerHTML;
+    }).join('');
+    item.innerHTML = `
+      <div class="wt-item-head">
+        <span class="wt-name"></span>
+        <span class="wt-count">${c.count} line(s)</span>
+      </div>
+      <div class="wt-stack"></div>
+      <div class="wt-tags">${types}</div>
+      <div class="wt-samples">${samples}</div>`;
+    item.querySelector('.wt-name').textContent = c.name;
+    item.querySelector('.wt-stack').textContent = c.stack;
+    item.querySelector('.wt-name').addEventListener('click', () => {
+      const target = state.containers.find((x) => x.id === c.id);
+      if (target) { closeWatchtower(); selectContainer(target); }
+    });
+    els.wtBody.appendChild(item);
+  }
+}
+
 function addLogLine(msg) {
   const entry = makeEntry(msg);
+  entry.sensitive = isSensitive(entry.text);
   state.lines.push(entry);
   if (state.lines.length > 5000) state.lines.shift();
+  if (entry.sensitive && els.watchtowerPanel.hidden) {
+    state.watchtowerSeen = false;
+    els.watchtower.classList.add('blink');
+  }
   if (matchesEntry(entry)) appendLineNode(entry);
 }
 
@@ -473,10 +570,30 @@ els.downloadRange.addEventListener('click', downloadRange);
 els.exportMinutes.addEventListener('change', () => {
   localStorage.setItem(EXPORT_MIN_KEY, String(exportMinutesValue()));
 });
+function applyMask(on) {
+  state.mask = on;
+  els.maskToggle.classList.toggle('active', on);
+  els.maskToggle.title = on
+    ? 'Incognito ON — sensitive data is masked in copies/downloads'
+    : 'Incognito: mask sensitive data in copies/downloads';
+}
+els.maskToggle.addEventListener('click', () => {
+  applyMask(!state.mask);
+  localStorage.setItem(MASK_KEY, state.mask ? '1' : '0');
+});
+els.watchtower.addEventListener('click', () => {
+  if (els.watchtowerPanel.hidden) openWatchtower(); else closeWatchtower();
+});
+els.wtClose.addEventListener('click', closeWatchtower);
+els.wtRefresh.addEventListener('click', loadWatchtower);
+els.watchtowerPanel.addEventListener('click', (e) => {
+  if (e.target === els.watchtowerPanel) closeWatchtower(); // click backdrop to close
+});
 
 /* ---------------- Init ---------------- */
 (async function init() {
   applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+  applyMask(localStorage.getItem(MASK_KEY) === '1');
   const savedMin = localStorage.getItem(EXPORT_MIN_KEY);
   if (savedMin) els.exportMinutes.value = savedMin;
   renderPins();
