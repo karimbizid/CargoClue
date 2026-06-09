@@ -1,0 +1,16 @@
+{
+  "name": "cargoclue",
+  "version": "0.1.3",
+  "description": "Simple web UI to view and pin logs from Docker containers and stacks",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "dockerode": "^4.0.2",
+    "express": "^4.19.2",
+    "ws": "^8.17.1"
+  }
+}

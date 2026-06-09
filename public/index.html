@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CargoClue · Docker logs</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="logo.png" alt="CargoClue" class="logo-img" />
+    </div>
+    <div class="stack-picker">
+      <label for="stackSelect">Stack</label>
+      <select id="stackSelect">
+        <option value="all">All stacks</option>
+      </select>
+      <button id="refreshBtn" title="Refresh containers">↻</button>
+    </div>
+    <div class="status-group">
+      <span class="version" id="version"></span>
+      <span class="conn" id="connStatus">disconnected</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-head">Containers</div>
+      <div id="containerList" class="container-list"></div>
+    </aside>
+
+    <section class="logpane">
+      <div class="logpane-head">
+        <span id="currentContainer">Select a container</span>
+        <div class="log-controls">
+          <div class="level-chips" id="levelChips">
+            <button class="chip" data-level="error">Error</button>
+            <button class="chip" data-level="warn">Warning</button>
+            <button class="chip" data-level="info">Info</button>
+            <button class="chip" data-level="debug">Debug</button>
+          </div>
+          <input type="text" id="filterInput" placeholder="Filter…" />
+          <label class="chk"><input type="checkbox" id="autoscroll" checked /> Autoscroll</label>
+          <button id="clearBtn" title="Clear log view">Clear</button>
+        </div>
+      </div>
+      <div id="logWindow" class="log-window"></div>
+    </section>
+  </main>
+
+  <footer class="pinned">
+    <div class="pinned-head">
+      <span>Pinned log entries (<span id="pinCount">0</span>)</span>
+      <button id="clearPinsBtn">Clear all</button>
+    </div>
+    <div id="pinnedList" class="pinned-list"></div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
