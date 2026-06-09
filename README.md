@@ -139,6 +139,9 @@ in the changelog below.
 
 ## Changelog
 
+### v1.0.0
+- First stable release. No functional changes since v0.4.1 — version bump only.
+
 ### v0.4.1
 - Fixed the Watchtower panel opening by default and the close button not working
   (the `hidden` attribute was overridden by the panel's `display` rule).
