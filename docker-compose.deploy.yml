@@ -1,0 +1,24 @@
+# Deploy compose for running CargoClue from a PUBLISHED image (no source needed).
+#
+# Use this on a target VM that only pulled the image. Copy this file there (you can
+# rename it to docker-compose.yml), set the image reference below, then:
+#
+#   docker compose -f docker-compose.deploy.yml up -d
+#
+# (or, if you renamed it to docker-compose.yml:  docker compose up -d)
+
+services:
+  cargoclue:
+    image: karimbizid/cargoclue:latest
+    container_name: cargoclue
+    restart: unless-stopped
+    pull_policy: always
+    ports:
+      # HOST:CONTAINER — must match PORT below.
+      - "9999:9999"
+    volumes:
+      # Mount the host Docker socket (read-only) so CargoClue can see all
+      # containers and stacks on this machine.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - PORT=9999

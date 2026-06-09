@@ -36,21 +36,45 @@ instance can monitor **all** stacks (Compose projects) on the machine.
 - **Version indicator** — the running version (from `package.json`) is shown top-right,
   next to the live-connection status, so you can confirm which build you're looking at.
 
-## Run
+## Quick start
+
+Pull and run — **one command**, no files needed. It pulls the image automatically the
+first time:
+
+```bash
+docker run -d --name cargoclue \
+  -p 9999:9999 \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  karimbizid/cargoclue:latest
+```
+
+Then open **http://localhost:9999**. That's it.
+
+The two flags are required: `-p` publishes the web UI, and `-v` mounts the host Docker
+socket **read-only** so CargoClue can see your containers. No other configuration needed.
+
+**Update to a newer version:**
+
+```bash
+docker pull karimbizid/cargoclue:latest
+docker rm -f cargoclue
+# then run the command above again
+```
+
+> Prefer Compose? Copy [`docker-compose.deploy.yml`](docker-compose.deploy.yml) to the
+> machine, set its `image:` line, and run `docker compose -f docker-compose.deploy.yml up -d`.
+> It's the exact same recipe as the one-liner above.
+
+## Build from source (development)
 
 ```bash
 docker compose up -d --build
 ```
 
-Then open **http://localhost:9999**
-
 > **Note:** after changing files you must rebuild the image (`--build`).
 > `docker compose --force-recreate` alone reuses the old image and keeps serving the
 > previous version. Also hard-refresh the browser (Cmd/Ctrl + Shift + R) to bypass
 > cached `app.js` / `style.css`.
-
-The Compose file mounts `/var/run/docker.sock` **read-only** so CargoClue can list
-containers and follow their logs. No other configuration is needed.
 
 ## Run locally (without Docker)
 
