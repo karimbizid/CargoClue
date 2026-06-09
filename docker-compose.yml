@@ -1,6 +1,7 @@
 services:
   cargoclue:
     build: .
+    image: cargoclue
     container_name: cargoclue
     restart: unless-stopped
     ports:
