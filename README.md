@@ -139,6 +139,10 @@ in the changelog below.
 
 ## Changelog
 
+### v0.4.1
+- Fixed the Watchtower panel opening by default and the close button not working
+  (the `hidden` attribute was overridden by the panel's `display` rule).
+
 ### v0.4.0
 - **Watchtower**: header chip that scans recent logs for sensitive data (keys, tokens,
   passwords, private keys, URL credentials, e-mails, IPs), lists exposing containers, and

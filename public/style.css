@@ -462,6 +462,7 @@ button:hover { border-color: var(--accent); }
 .export-btn.active { color: var(--accent); background: var(--bg-elev); }
 
 /* ---------- Watchtower panel (modal) ---------- */
+.wt-panel[hidden] { display: none; } /* respect the hidden attribute over display:flex */
 .wt-panel {
   position: fixed;
   inset: 0;
