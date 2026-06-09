@@ -18,10 +18,16 @@ const els = {
   themeToggle: document.getElementById('themeToggle'),
   expandAll: document.getElementById('expandAll'),
   collapseAll: document.getElementById('collapseAll'),
+  exportMinutes: document.getElementById('exportMinutes'),
+  copyRange: document.getElementById('copyRange'),
+  downloadRange: document.getElementById('downloadRange'),
+  githubLink: document.getElementById('githubLink'),
+  ghBadge: document.getElementById('ghBadge'),
 };
 
 const PIN_KEY = 'cargoclue.pins.v1';
 const THEME_KEY = 'cargoclue.theme';
+const EXPORT_MIN_KEY = 'cargoclue.exportMinutes';
 const NO_STACK = '(no stack)';
 
 const state = {
@@ -91,6 +97,21 @@ async function fetchUpdates() {
     const { updates } = await (await fetch('/api/updates')).json();
     state.updates = updates || {};
     renderContainers();
+  } catch { /* ignore */ }
+}
+
+async function fetchSelfUpdate() {
+  try {
+    const info = await (await fetch('/api/self-update-check')).json();
+    if (info.updateAvailable && info.latest) {
+      els.ghBadge.hidden = false;
+      els.githubLink.classList.add('has-update');
+      els.githubLink.title = `New version available: v${info.latest} (you have v${info.current}) — click to view on GitHub`;
+    } else {
+      els.ghBadge.hidden = true;
+      els.githubLink.classList.remove('has-update');
+      els.githubLink.title = 'View on GitHub';
+    }
   } catch { /* ignore */ }
 }
 
@@ -298,6 +319,65 @@ function fallbackCopy(text, done) {
   document.body.removeChild(ta);
 }
 
+/* ---------------- Time-window export ---------------- */
+function flashBtn(btn, symbol, cls) {
+  const prev = btn.textContent;
+  btn.textContent = symbol;
+  if (cls) btn.classList.add(cls);
+  setTimeout(() => { btn.textContent = prev; if (cls) btn.classList.remove(cls); }, 900);
+}
+
+function exportMinutesValue() {
+  const n = parseInt(els.exportMinutes.value, 10);
+  return Number.isFinite(n) && n > 0 ? n : 15;
+}
+
+function formatEntry(e) {
+  return [e.ts, e.containerName, e.level.toUpperCase(), e.text].filter(Boolean).join(' ');
+}
+
+// Lines from the current buffer within the last `minutes` minutes (by timestamp).
+function entriesInWindow(minutes) {
+  const cutoff = Date.now() - minutes * 60000;
+  return state.lines.filter((e) => {
+    if (!e.ts) return false;
+    const t = new Date(e.ts).getTime();
+    return !isNaN(t) && t >= cutoff;
+  });
+}
+
+function copyRange() {
+  const minutes = exportMinutesValue();
+  const text = entriesInWindow(minutes).map(formatEntry).join('\n');
+  if (!text) { flashBtn(els.copyRange, '∅'); return; }
+  const done = () => flashBtn(els.copyRange, '✓', 'copied');
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else {
+    fallbackCopy(text, done);
+  }
+}
+
+function downloadRange() {
+  const minutes = exportMinutesValue();
+  const text = entriesInWindow(minutes).map(formatEntry).join('\n');
+  if (!text) { flashBtn(els.downloadRange, '∅'); return; }
+  const name = (state.active?.title || 'logs').replace(/[\\/:*?"<>|]+/g, '-').toUpperCase();
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+  const minLabel = `LAST ${minutes} MINUTE${minutes === 1 ? '' : 'S'}`;
+  const blob = new Blob([text], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${name} - ${stamp} - ${minLabel}.log`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+  flashBtn(els.downloadRange, '✓', 'copied');
+}
+
 function addLogLine(msg) {
   const entry = makeEntry(msg);
   state.lines.push(entry);
@@ -388,12 +468,20 @@ els.collapseAll.addEventListener('click', () => {
   for (const [stack] of groupByStack(state.containers)) state.collapsed.add(stack);
   renderContainers();
 });
+els.copyRange.addEventListener('click', copyRange);
+els.downloadRange.addEventListener('click', downloadRange);
+els.exportMinutes.addEventListener('change', () => {
+  localStorage.setItem(EXPORT_MIN_KEY, String(exportMinutesValue()));
+});
 
 /* ---------------- Init ---------------- */
 (async function init() {
   applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+  const savedMin = localStorage.getItem(EXPORT_MIN_KEY);
+  if (savedMin) els.exportMinutes.value = savedMin;
   renderPins();
   fetchVersion();
+  fetchSelfUpdate();
   try {
     await fetchStacks();
     await fetchContainers();
@@ -406,5 +494,6 @@ els.collapseAll.addEventListener('click', () => {
   setTimeout(fetchUpdates, 8000);
   setTimeout(fetchUpdates, 25000);
   setInterval(fetchContainers, 10000);
-  setInterval(fetchUpdates, 10 * 60 * 1000); // re-check image updates every 10 min
+  setInterval(fetchUpdates, 10 * 60 * 1000);       // re-check image updates every 10 min
+  setInterval(fetchSelfUpdate, 60 * 60 * 1000);    // re-check CargoClue version hourly
 })();

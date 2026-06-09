@@ -30,11 +30,15 @@ instance can monitor **all** stacks (Compose projects) on the machine.
   levels (combine multiple; none selected = show everything).
 - **Text filter & autoscroll** — free-text filter over the visible lines, with an
   autoscroll toggle that sticks to the bottom only when you're already there.
-- **Pin entries** — hover a log line and click the 📌 to pin it.
+- **Time-window export** — set a number of minutes and copy or download that slice of the
+  current log to the clipboard / a `.log` file. The minutes value is remembered.
+- **Pin entries** — hover a log line and click the 📌 to pin it; each line also has a copy
+  button that copies the whole entry.
 - **Pinned list** (bottom, full width) — pinned entries persist per browser via
   `localStorage` and survive reloads; unpin individually or clear all.
-- **Version indicator** — the running version (from `package.json`) is shown top-right,
-  next to the live-connection status, so you can confirm which build you're looking at.
+- **Light & dark mode** — toggle with the sun/moon button top-right, remembered per browser.
+- **Version indicator & GitHub link** — the running version is shown top-right with a
+  GitHub link that flags when a newer CargoClue release is available.
 
 ## Quick start
 
@@ -53,17 +57,29 @@ Then open **http://localhost:9999**. That's it.
 The two flags are required: `-p` publishes the web UI, and `-v` mounts the host Docker
 socket **read-only** so CargoClue can see your containers. No other configuration needed.
 
-**Update to a newer version:**
+### Updating
+
+CargoClue tells you when a newer release exists: the **GitHub icon** in the top-right
+gets a dot and tooltip. To update, run the bundled one-liner script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/karimbizid/CargoClue/main/update.sh | sh
+```
+
+It pulls the latest image and recreates the container with the same settings. You can
+override `CARGOCLUE_PORT` / `CARGOCLUE_IMAGE` / `CARGOCLUE_NAME` as env vars if you run it
+on a non-default setup.
+
+Prefer to do it by hand? That's just:
 
 ```bash
 docker pull karimbizid/cargoclue:latest
 docker rm -f cargoclue
-# then run the command above again
+# then run the docker run command above again
 ```
 
 > Prefer Compose? Copy [`docker-compose.deploy.yml`](docker-compose.deploy.yml) to the
-> machine, set its `image:` line, and run `docker compose -f docker-compose.deploy.yml up -d`.
-> It's the exact same recipe as the one-liner above.
+> machine, set its `image:` line, and run `docker compose -f docker-compose.deploy.yml pull && docker compose -f docker-compose.deploy.yml up -d`.
 
 ## Build from source (development)
 
@@ -97,6 +113,8 @@ npm start
 - `dockerode` talks to the Docker Engine API over the mounted socket.
 - `GET /api/stacks` and `GET /api/containers?stack=…` drive the UI lists.
 - `GET /api/version` exposes the version shown in the header.
+- `GET /api/self-update-check` compares the running version with `package.json` on the
+  GitHub repo to flag when a newer CargoClue release exists (cached for an hour).
 - `GET /api/updates` reports, per container, whether a newer image exists. It compares the
   locally pulled image digest with the registry's current digest for the same tag
   (best-effort, anonymous; results are cached and refreshed in the background).
@@ -112,6 +130,18 @@ The version in `package.json` is bumped on **every** change and surfaced in the 
 in the changelog below.
 
 ## Changelog
+
+### v0.3.1
+- Cleaned up the minutes input (hid the cramped native number spinners).
+- Downloaded log files now get a readable name: `CONTAINER - YYYY-MM-DD HH-MM-SS - LAST N MINUTES.log`.
+
+### v0.3.0
+- **Time-window export**: a minutes input + copy/download buttons in the log toolbar to
+  grab the last N minutes of the current log (the value is remembered).
+- **GitHub link** next to the version, opening the repo in a new tab.
+- **New-version indicator**: the GitHub link flags when a newer CargoClue release is
+  available (compares against `package.json` on GitHub).
+- **`update.sh`** one-liner script for easy updates when installed via `docker run`.
 
 ### v0.2.0
 - **Light mode** with a sun/moon toggle (top-right), remembered per browser.

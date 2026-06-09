@@ -39,6 +39,49 @@ app.get('/api/version', (req, res) => {
   res.json({ version: VERSION });
 });
 
+/* ---- Self-update check: compare running version with package.json on GitHub ---- */
+const REPO_RAW = 'https://raw.githubusercontent.com/karimbizid/CargoClue';
+const SELF_TTL_MS = 60 * 60 * 1000;
+let latestVersion = { value: null, checkedAt: 0 };
+
+function cmpSemver(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
+async function getLatestVersion() {
+  if (latestVersion.value && Date.now() - latestVersion.checkedAt < SELF_TTL_MS) {
+    return latestVersion.value;
+  }
+  for (const branch of ['main', 'master']) {
+    try {
+      const res = await fetch(`${REPO_RAW}/${branch}/package.json`, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) continue;
+      const json = await res.json();
+      if (json.version) {
+        latestVersion = { value: json.version, checkedAt: Date.now() };
+        return json.version;
+      }
+    } catch { /* try next branch / give up */ }
+  }
+  return latestVersion.value; // may be null when offline / not yet known
+}
+
+app.get('/api/self-update-check', async (req, res) => {
+  const latest = await getLatestVersion();
+  res.json({
+    current: VERSION,
+    latest,
+    updateAvailable: latest ? cmpSemver(latest, VERSION) > 0 : false,
+    repo: 'https://github.com/karimbizid/CargoClue',
+  });
+});
+
 app.get('/api/health', (req, res) => {
   docker.ping()
     .then(() => res.json({ ok: true }))
